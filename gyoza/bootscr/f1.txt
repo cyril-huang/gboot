@@ -1,0 +1,25 @@
+                  0fWelcome to Gyoza Multiboot CD!07       09F107
+
+This is a Gyoza multiboot installation CD which includes the DOS, Linux of 
+Debian, Unbuntu, Fedora, CentOS and SLAX as well as the Microsoft Windows XP. 
+The default is to run live SLAX Linux.
+
+0fKEY    TOPIC07
+
+<09F107>   This page, the help index.
+<09F207>   Boot Microsoft DOS and FreeDOS
+<09F307>   Boot/install parameters for Microsoft Windows XP
+<09F407>   Boot/install parameters for Debian Linux
+<09F507>   Boot/install parameters for Ubuntu Linux
+<09F607>   Boot/install parameters for Fedora Linux
+<09F707>   Boot/install parameters for Centos Linux
+<09F807>   Boot/install parameters for SLAX Linux
+<09F907>   Instruction of boot parameters in general Linux
+<09F1007>  Copyrights and warranties.
+
+For F1-F9 type control and F then the digit 1-9
+For F10 type control and F then the digit 0
+
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F2 through F10 for details, or ENTER to 

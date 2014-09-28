@@ -1,0 +1,112 @@
+#!/bin/sh
+# vim:sts=4:sw=4:noexpandtab
+# Gyoza
+
+# depends : coreutils,sh,wget,sed,awk
+
+# repo_debian="$dl_site/debian/dists/$ver/main/installer-amd64/current/images/netboot/debian-installer/amd64"
+# repo_centos="$dl_site/centos/$ver/os/x86_64/images/pxeboot"
+# repo_ubuntu="$dl_site/ubuntu/dists/$ver/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64"
+# repo_fedora="$dl_site/fedora/releases/$ver/Fedora/x86_64/os/images/pxeboot"
+# 
+# ubuntu codename : https://wiki.ubuntu.com/DevelopmentCodeNames
+# repo_freebsd='ftp://ftp.freebsd.org/pub/FreeBSD/'
+# repo_openbsd='ftp://ftp.openbsd.org/pub/OpenBSD/pub/OpenBSD/'
+# repo_netbsd='ftp://ftp.netbsd.org/pub/NetBSD/pub/NetBSD/'
+
+if [ ! "`command -v wget`" ]; then
+    echo "No wget in $PATH"
+    echo "Install wget package first"
+    exit 1
+fi
+
+if [ "$1" ]; then
+    prefix=$1
+else
+    prefix=`dirname $0`/..
+fi
+
+gyoza="/gyoza/images/linux"
+local_prefix="$prefix/$gyoza"
+if [ ! -w $local_prefix ]; then
+    echo "No permission to write to $local_prefix"
+    echo Usage:
+    echo `basename $0` [localdir]
+    exit 1
+fi
+
+dl_site='http://mirrors.kernel.org'
+
+download () {
+    remote_dir=$1
+    local_dir=$2
+    if [ "`echo $remote_dir | grep debian`" -o "`echo $remote_dir | grep ubuntu`" ]; then
+        flist='linux initrd.gz'
+    else
+        flist='vmlinuz initrd.img'
+    fi
+    mkdir -p $local_dir
+    for file in $flist; do
+        wget $remote_dir/$file -O $local_dir/$file
+        if [ $? -ne 0 ]; then
+            echo "Get $file failed."
+            exit 1
+        fi
+    done
+}
+
+# debian
+echo "Downloading latest debian ..."
+remote_dir="$dl_site/debian/dists/stable/main/installer-amd64/current/images/netboot/debian-installer/amd64"
+local_dir="$local_prefix/debian/stable/amd64"
+download $remote_dir $local_dir
+
+#ubuntu
+echo "Downloading latest ubuntu ..."
+remote_dir="$dl_site/ubuntu/dists/devel/main/installer-amd64/current/images/netboot/ubuntu-installer/amd64"
+local_dir="$local_prefix/ubuntu/devel/amd64"
+download $remote_dir $local_dir
+
+# centos/fedora
+for distro in fedora centos; do
+    echo "Downloading latest $distro ..."
+    my_all=`ls $local_prefix/$distro| sort -u`
+    my_current=`echo $my_all | awk '{print $NF}'`
+    current=$my_current
+    my_next=`expr $my_current + 1`
+    remote_index="$dl_site/centos"
+    [ $distro = fedora ] && remote_index="$dl_site/fedora/releases"
+    while [ 1 ]; do
+        wget $remote_index/$my_next/ -O /tmp/redhat
+        if [ $? -eq 0 ]; then
+            my_next=`expr $my_next + 1`
+        else
+            current=`expr $my_next - 1`
+            break
+        fi
+    done
+    rm -f /tmp/redhat
+
+    if [ ! -f $local_prefix/$distro/$current/x86_64/vmlinuz ]; then
+        pxeimg="images/pxeboot"
+        remote_repo="$remote_index/$current/os/x86_64"
+        [ $distro = fedora ] && remote_repo="$remote_index/$current/Fedora/x86_64/os"
+        remote_dir="$remote_repo/$pxeimg"
+        local_dir=$local_prefix/$distro/$current/x86_64
+        download $remote_dir $local_dir
+        cfg=$prefix/syslinux/cfg/linux.cfg
+        if [ -f $cfg ]; then
+            id=${distro}_x86_64
+            label="LABEL $id"
+            menu="menu label $distro $current x86_64 (Net install)"
+            kernel="kernel $gyoza/$distro/$current/x86_64/vmlinuz"
+            initrd="initrd $gyoza/$distro/$current/x86_64/initrd.img"
+            append="append $initrd nomodeset method=$remote_repo"
+            sed -i -e "/$id/,+4c$label\n\t$menu\n\t$kernel\n\t$append\n\t" $cfg
+        fi
+    else
+        echo "Latest $distro $current found, not necessary to update."
+    fi
+done
+
+echo "DONE : all linux netboot images download in $local_prefix"

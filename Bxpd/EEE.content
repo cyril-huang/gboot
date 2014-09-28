@@ -1,0 +1,27 @@
+C:>bcdedit /store EEE /enum
+
+Windows Boot Manager
+--------------------
+identifier              {bootmgr}
+description             Windows Boot Manager
+locale                  en-US
+inherit                 {globalsettings}
+nointegritychecks       Yes
+default                 {default}
+displayorder            {default}
+toolsdisplayorder       {memdiag}
+timeout                 30
+
+Windows 開機載入器
+-------------------
+identifier              {default}
+device                  ramdisk=[boot]\srcxptw\boot.wim,{ramdiskoptions}
+path                    \windows\system32\boot\winload.exe
+description             Windows Setup
+locale                  en-US
+inherit                 {bootloadersettings}
+osdevice                ramdisk=[boot]\srcxptw\boot.wim,{ramdiskoptions}
+systemroot              \windows
+detecthal               Yes
+winpe                   Yes
+ems                     Yes

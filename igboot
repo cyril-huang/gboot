@@ -1,0 +1,483 @@
+#!/bin/bash
+# depend : coreutils,dosfstools,util-linux,mount,hfsplus,hfsprogs
+pgr=`basename $0`
+version=0.0.1
+unset force
+unset partition
+unset silent
+
+usage () {
+            cat <<HERE
+$pgr $version Copyright (c) 2014 Gyoza Systems, Inc.
+
+$pgr [options] device
+
+options:
+  -f|--force   : remove everything in the device, used very carefully.
+  -g|--grubsrc : copy the grub source files to target device.
+  -s|--silent  : silent without prompt message.
+  -x|--osx     : make partition for osx as well. 6G required for osx.
+  -h|--help
+
+Example:
+  $pgr /dev/sde
+  $pgr -x /dev/sdf
+HERE
+}
+
+opts=`getopt -a -u -o fgxsh -l force,grubsrc,osx,silent,help -- $@`
+[ $? -eq 0 ] || exit
+set -- $opts
+
+while true; do
+    case $1 in
+        -f|--force)
+            force=1
+            shift
+            ;;
+        -g|--grubsrc)
+            grubsrc=1
+            shift
+            ;;
+        -x|--osx)
+            partition=2
+            shift
+            ;;
+        -s|--silent)
+            silent=1
+            shift
+            ;;
+        --)
+            shift
+            break;
+            ;;
+        ?|-h|--help)
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+prefix=`dirname $0`
+bdev=$*
+
+if [ ! "$bdev" ]; then
+    usage
+    echo "No devic specified"
+    exit 1
+fi
+
+if [ "`id -rg`" != 0 ]; then
+    echo "Not superuser"
+    exit 1
+fi
+
+if [ ! -b "$bdev" ]; then
+    echo "No such device: $bdev"
+    exit 1
+fi
+
+if [ ! -w $bdev ]; then
+    echo "No permission to write to $bdev"
+    exit 1
+fi
+
+if [ ! "`command -v fdisk`" ]; then
+    echo "Can not find fdisk in $PATH"
+    exit 1
+fi
+
+if [ ! "`command -v partx`" ]; then
+    echo "Can not find partx in $PATH"
+    exit 1
+fi
+
+mnt1=/tmp/.gmnt1
+mnt2=/tmp/.gmnt2
+osx_size=6291456                # 6G
+gboot_size=49152                # 48M
+partition=${partition:-1}
+
+mkdir -p $mnt1 $mnt2
+
+bsize=`fdisk -s $bdev`          # unit is block: 1024
+fsize=`expr $bsize - 1024`      # the 1st part usually from 1M now
+bsector=`expr $bsize \* 2`      # unit is sector: 512
+fsector=`expr $bsector - 2048`  # start from 2048 to align the 4k
+
+if [ $fsize -lt $gboot_size ]; then
+    echo "No enough space for minimum gboot usage, `expr $gboot_size / 1000`M is required"
+    exit 1
+fi
+
+if [ $partition -eq 2 ]; then
+    min_size=`expr $osx_size + $gboot_size`
+    if [ $fsize -lt $min_size ]; then
+        echo "No enough space for OSX. `expr $osx_size / 1000000`G is required"
+        exit 1
+    fi
+fi
+
+log () {
+    _msg=$*
+
+    [ "$debug" ] && return
+    [ "$silent" ] || echo $_msg
+}
+
+prompt_continue() {
+    _msg=$*
+
+    read -p "$_msg " input
+    while [ 1 ]; do
+        case $input in
+            [Yy]|yes)
+                break;
+                ;;
+            [Nn]|no)
+                exit 0
+                ;;
+            *)
+                read -p "Continue? Please input (y|n): " input
+                ;;
+        esac
+    done
+}
+
+check_mkfs_vfat () {
+    if [ ! "`command -v mkfs.vfat`" ]; then
+        echo "No mkfs.vfat found in the $PATH"
+        echo "Install dosfstools package"
+        exit 1
+    fi
+}
+
+check_mkfs_hfs () {
+    if [ ! "`command -v mkfs.hfsplus`" ]; then
+        echo "No mkfs.hfsplus found in the $PATH"
+        echo "Install hfsplus and hfsprogs packages"
+        exit 1
+    fi
+}
+
+umount_all () {
+    _bdev=$1
+ 
+    mounted=`cat /proc/mounts | grep $_bdev | awk '{print $1}'`
+    for _dev in $mounted; do
+        umount $_dev > /tmp/umount.err 2>&1
+        if [ $? -ne 0 ]; then
+            cat /tmp/umount.err
+            echo "make sure no any user is using the $_bdev"
+            rm -f /tmp/umount.err
+            exit 1
+        fi
+    done
+    rm -f /tmp/umount.err
+}
+
+get_cursor () {
+    exec < /dev/tty
+    oldstty=`stty -g`
+    stty raw -echo min 0
+    echo -ne "\x1b[6n" > /dev/tty
+    IFS=';' read -r -d R -a pos
+    stty $oldstty
+    row=$((${pos[0]:2} - 1))
+    col=$((${pos[1]} - 1))
+}
+
+copy_gboot () {
+    bootmgrs="boot*"
+    bootdirs="Bw* Bxp*"
+    sources="src*"
+ 
+    flist=
+    cd $prefix
+    [ "$grubsrc" ] || no_grub_src="-o -path gyoza/grub -prune"
+    for top in syslinux gyoza $bootmgrs $bootdirs $sources ; do
+        dirlist="`find $top -type d $no_grub_src 2> /dev/null`"
+        for dir in $dirlist; do mkdir -p $mnt1/$dir; done
+        flist="$flist `find $top -type f $no_grub_src 2> /dev/null`"
+    done
+    grand_cp=0
+    for file in $flist; do
+        size_cp=`stat -c "%s" $file`
+        grand_cp=`expr $grand_cp + $size_cp`
+    done
+
+    stty -echo
+    echo -ne "\x1b[?25l"
+    if [ "`command -v tput`" ]; then
+        term_width=`tput cols`
+        [ $term_width -gt 99 ] && term_width=99
+        echo -ne "[\x1b[${term_width}G]"
+        term_width=`expr $term_width - 1`
+    fi
+
+    echo -ne "\n\n\n"
+    echo -ne "\x1b[3F"
+    loop='-'
+    size_copied=0
+    for file in $flist; do
+        size_copying=`stat -c "%s" $file`
+        size_copied=`expr $size_copied + $size_copying`
+        progress=`expr $size_copied \* 100`
+        progress=`expr $progress / $grand_cp`
+        echo -ne "\x1b[s"
+        if [ "$term_width" ]; then
+            x=`expr $term_width \* $progress`
+            x=`expr $x / 100`
+            while [ $x -gt 1 ]; do
+                echo -ne "\x1b[${x}G="
+                x=`expr $x - 1`
+            done
+        else 
+            case $loop in
+                '-')
+                    loop='\'
+                    ;;
+                '|')
+                    loop='/'
+                    ;;
+                '/')
+                    loop='-'
+                    ;;
+                \\)
+                    loop='|'
+                    ;;
+            esac
+            echo -ne "\x1b[5G"
+            echo -ne "$loop"
+        fi
+        echo -ne "\x1b[1E\x1b[K    Copying $file ..."
+        echo -ne "\x1b[1E    $progress %"
+        echo -ne "\x1b[u"
+        cp -r $prefix/$file $mnt1/$file
+    done
+    echo -ne "\x1b[4E"
+    echo -ne "\x1b[?25h"
+    stty echo
+
+    for file in $mnt1/B*/*.content; do
+        srcdir=$(sed -n -e '/^device/p' $file | sed -e 's/.*\[boot\]\\\(.*\)\\.*/\1/g')
+        mkdir -p $mnt1/$srcdir
+    done
+
+    ls --color $mnt1
+    log "Gyoza boot USB created successfully."
+}
+
+create_bootsector() {
+    syslinux=$prefix/syslinux
+    gyoza=$prefix/gyoza
+    grub=$gyoza/grub
+    mbr=$gyoza/mbr
+
+    mkdir -p $mbr
+    dd if=$syslinux/mbr.bin of=$bdev count=1 bs=446
+    echo -e "\ncreating grub bootsector ... please wait!"
+    $grub/sbin/grub-install --directory $grub/lib/grub/i386-pc/ --root-directory $mnt1 $bdev 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "Create grub boot sector failed"
+        echo "Consider blank out the drive and re-try it again"
+        exit 1
+    fi
+    dd if=$bdev of=$mbr/grub.bs count=1 bs=512
+    cp $grub/grub.cfg $mnt1/boot/grub
+
+    dd if=$syslinux/mbr.bin of=$bdev count=1 bs=446
+    echo -e "\ncreating syslinux bootsector ... please wait!"
+    $syslinux/syslinux64 -i ${part_prefix}1 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "Create syslinux boot sector failed"
+        echo "Consider blank out the drive and re-try it again"
+        exit 1
+    fi
+    dd if=${part_prefix}1 of=$mbr/syslinux.bs count=1 bs=512
+}
+
+create_partition () {
+    [ "$mkpart" ] || return
+ 
+    echo -e "\ncreating partition on $bdev"
+    dd if=/dev/zero of=$bdev bs=1 count=512
+    partx -d $bdev 2>/dev/null
+
+    if [ $partition -eq 2 ]; then
+        fsize1=`expr $fsize - $osx_size`
+        fsize2=$osx_size
+    else
+        fsize1=$fsize
+        fsize2=0
+    fi
+
+    fsector1=`expr $fsize1 \* 2`
+    fsector1_hex=`printf "%x" $fsector1`
+    if [ ${#fsector1_hex} -gt 8 ]; then
+        echo "Stop! partition 1 size $fsector1_hex is not correct."
+        exit 1
+    fi
+
+    fsector_hex="00000000$fsector1_hex"
+    elba0=${fsector_hex: -8:2}
+    elba1=${fsector_hex: -6:2}
+    elba2=${fsector_hex: -4:2}
+    elba3=${fsector_hex: -2:2}
+
+    chs="\x80\x21\x20\x00\x0c\xfe\xff\xff"
+    lba="\x00\x08\x00\x00\x${elba3}\x${elba2}\x${elba1}\x${elba0}"
+    echo -ne "$chs$lba" | dd if=/dev/stdin of=$bdev seek=446 bs=1 count=16
+
+    if [ $partition -eq 2 ]; then
+        slba=`expr $fsector1 + 2048`
+        slba_hex=`printf '%x' $slba`
+        fsector2=`expr $fsize2 \* 2`
+        fsector2_hex=`printf '%x' $fsector2`
+
+        if [ ${#fsector2_hex} -gt 8 -o ${#slba_hex} -gt 8 ]; then
+            echo "Stop! partition 2 start position $slba_hex or size $fsector2_hex is not correct."
+            exit 1
+        fi
+
+        slba_hex="00000000$slba_hex"
+        slba0=${slba_hex: -8:2}
+        slba1=${slba_hex: -6:2}
+        slba2=${slba_hex: -4:2}
+        slba3=${slba_hex: -2:2}
+        fsector_hex="00000000$fsector2_hex"
+        elba0=${fsector_hex: -8:2}
+        elba1=${fsector_hex: -6:2}
+        elba2=${fsector_hex: -4:2}
+        elba3=${fsector_hex: -2:2}
+        chs="\x00\xfe\xff\xff\xaf\xfe\xff\xff"
+        lba="\x${slba3}\x${slba2}\x${slba1}\x${slba0}\x${elba3}\x${elba2}\x${elba1}\x${elba0}"
+        echo -ne "$chs$lba" | dd if=/dev/stdin of=$bdev seek=462 bs=1 count=16
+    fi
+    echo -ne "\x55\xaa" | dd if=/dev/stdin of=$bdev seek=510 bs=1 count=2
+    partx -a $bdev 2>/dev/null
+}
+
+get_dev_info () {
+    for part in 1 2; do
+        pdev=$part_prefix$part
+        echo "checking $pdev..."
+        if [ -b $pdev ]; then
+            eval mnt="\$mnt$part"
+            mount $pdev $mnt > /dev/null 2>&1
+            if [ $? -ne 0 ]; then
+                log "Unable to access filesystem on partition $pdev"
+                part_fsize=`partx -g -b -s $pdev | awk '{print $5}'`
+                eval "fs$part='N/A'"
+                eval "fsize$part=`echo '' | awk '{print pfsize / 1024;}' pfsize=$part_fsize`"
+            else
+                dev=`basename pdev`
+                dfdev=`df -T $mnt | grep "$pdev"`
+                eval "fs$part=`echo $dfdev | awk '{print $2}'`"
+                eval "fsize$part=`echo $dfdev | awk '{print $5}'`"
+                umount $pdev
+            fi
+        else
+                eval "fs$part="
+                eval "fsize$part=0"
+        fi
+    done
+
+    [ "$fsize1" ] || fsize1=0
+    [ "$fsize2" ] || fsize2=0
+
+    # no partition -> force | exit
+    # partition -> vfat -a fsize lt -> force | exit
+    # partition -> no vfat -> fsize gt -> mkfs else force | exit 
+    # partition -> vfat -a fsize gt - go
+
+    if [ ! "$fs1" -o $fsize1 -lt $gboot_size ]; then
+        mkpart=1
+        mkfs_vfat=1
+    elif [ "$fs1" = "N/A" -o "$fs1" != 'vfat' ]; then
+        mkfs_vfat=1
+    fi
+
+    if [ $partition -eq 2 ]; then
+        if [ ! "$fs2" -o $fsize2 -lt $osx_size ]; then
+            mkpart=1
+            mkfs_vfat=1
+            mkfs_hfs=1
+        elif [ "$fs2" = "N/A" -o "$fs2" != 'hfsplus' ]; then
+            mkfs_hfs=1
+        fi
+    fi
+
+    [ "$force" ] && return
+
+    echo -e "
+Current device information:
+
+partition\tfilesystem\tfree
+==================================================================
+${part_prefix}1\t$fs1\t\t$fsize1 
+${part_prefix}2\t$fs2\t\t$fsize2
+==================================================================
+"
+    if [ "$mkpart" -o "$mkfs_hfs" -o "$mkfs_vfat" ]; then
+        echo "Need to rebuild the partition or filesystem."
+        [ "$mkpart" ] && echo "Will wipe out everything in $bdev"
+        [ "$mkfs_vfat" ] && echo "Will make new vfat on ${part_prefix}1"
+        [ "$mkfs_hfs" ] && echo "Will make new hfsplus on ${part_prefix}2"
+        prompt_continue "Continue (y/n)?"
+    fi
+}
+
+# FIXME :
+# - get the location of all ISO from user and do the copy
+# - create download latest bsd script
+
+main () {
+    mkpart=
+    mkfs_vfat=
+    mkfs_hfs=
+    if [ "`echo $bdev | grep nbd`" ]; then
+        part_prefix=${bdev}p
+        part_prefix=${bdev}p
+    else
+        part_prefix=${bdev}
+        part_prefix=${bdev}
+    fi
+
+    umount_all $bdev
+
+    if [ "$force" ]; then
+        if [ ! "$silent" ]; then
+            echo "Current disk configuration"
+            echo "================================================================="
+            fdisk -l $bdev
+            echo "================================================================="
+            prompt_continue "WARNING: All data in $bdev will be lost. Continue? (y/n)"
+        fi
+        mkpart=1
+        [ $partition -eq 2 ] && mkfs_hfs=1
+    else
+        get_dev_info
+    fi
+    
+    [ "$mkpart" -o "$mkfs_vfat" ] && check_mkfs_vfat
+    [ "$mkfs_hfs" ] && check_mkfs_hfs
+    [ "$mkpart" ] && create_partition
+    [ "$mkpart" -o "$mkfs_vfat" ] && mkfs.vfat -n GYOZA ${part_prefix}1 
+    [ "$mkfs_hfs" ] && mkfs.hfsplus ${part_prefix}2
+
+    mounted=`cat /proc/mounts | grep ${part_prefix}1`
+    if [ ! "$mounted" ]; then
+        mount ${part_prefix}1 $mnt1
+        [ $? -eq 0 ] || exit 1
+    fi
+
+    create_bootsector
+    copy_gboot
+    echo -e "\numount filesystem... please wait!"
+    umount $mnt1
+    rmdir $mnt1 $mnt2
+}
+
+main
+# vim:set:sts=4:sw=4:expandtab

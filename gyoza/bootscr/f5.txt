@@ -1,0 +1,24 @@
+0fUbuntu Linux - We are people because of other people07   09F507
+
+Ubuntu Linux is a predominantly desktop-oriented Linux distribution based on
+Debian GNU/Linux but with a stronger focus on usability, regular releases and
+ease of installation at the expense of platform diversity.
+
+0fOptions for CPU architecture07
+
+0fubuntu07
+  The i386 CPU architecture version
+
+0fubuntu_amd6407
+  The 64bits CPU architecture version
+
+0fubuntu_live07
+  The i386 live CD with GNOME desktop.
+
+0fSpecial options for booting ubuntu, apply to each architecture07
+
+0frescue/enable=true07       rescue a crash installed system.
+0fpriority=low07             Used to do advanced installation for expert.
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F1control and F then 1 for the help index, or ENTER to 

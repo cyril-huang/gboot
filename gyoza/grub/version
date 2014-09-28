@@ -1,0 +1,5 @@
+git clone git://git.savannah.gnu.org/grub.git at Aug 17, 2014
+2.02
+
+if './stdio.h:456:1: error: 'gets' undeclared here (not in a function)':
+	sed -i -e '/gets is a security/d' grub-core/gnulib/stdio.in.h

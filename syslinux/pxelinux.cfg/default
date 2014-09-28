@@ -1,0 +1,65 @@
+DEFAULT modules/vesamenu.c32
+
+include pxelinux.cfg/header.cfg
+
+LABEL osx
+	menu label Apple OSX
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/osx.cfg
+
+LABEL bsd
+	menu label Berkeley BSD
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/bsd.cfg
+
+LABEL linux
+	menu label GNU / Linux
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/linux.cfg
+
+LABEL android
+	menu label Google / Android x86
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/android.cfg
+
+LABEL dos
+	menu label Microsoft DOS
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/dos.cfg
+
+LABEL windows
+	menu label Microsoft Windows System 
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/windows.cfg
+
+LABEL solaris
+	menu label Oracle Solaris
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/solaris.cfg
+
+LABEL esxi
+	menu label VMWare ESXi
+	kernel modules/vesamenu.c32
+	append pxelinux.cfg/esxi.cfg
+
+menu separator
+LABEL gyoza
+	menu label Gyoza Linux Rescue
+	kernel /gyoza/images/gyoza/linux
+	append /gyoza/images/gyoza/initrd.gz
+
+LABEL grub2
+	menu label GRUB2 system
+	kernel modules/pxechn.c32
+	append fs file=/gyoza/grub/grub.0
+
+LABEL ipxe
+	menu label Ipxe system
+	kernel /gyoza/ipxe/ipxe.lkrn
+	initrd /gyoza/ipxe/ipxe.cmd
+
+LABEL memtest
+	menu label Memory Test (memtest86)
+	kernel /gyoza/images/memtest/memtest86+-5.01.bin
+
+include pxelinux.cfg/upper.cfg

@@ -1,0 +1,24 @@
+0fFedora - the Redhat based opensource OS07                09F607
+
+Fedora is an RPM-based, general purpose Linux distribution, developed
+by the community-supported Fedora Project and sponsored by RedHat. The
+mission is "Fedora is about the rapid progress of Free and Open Source
+software"
+
+
+0fOptions for CPU architecture07
+
+0ffedora07
+  The i386 CPU architecture version
+
+0ffedora_amd6407
+  The 64bits CPU architecture version
+
+0ffedora_live07
+  The i386 live CD with KDE window manager.
+
+
+
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F1control and F then 1 for the help index, or ENTER to 

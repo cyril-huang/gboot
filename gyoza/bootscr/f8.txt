@@ -1,0 +1,24 @@
+0fSLAX - Small Live Linux CD07                             09F807
+
+SLAX is a small live Linux CD that you can play around Linux with CD only and
+it's not necessary to install it on your hard disk. SLAX is based on the 
+Slackware Linux distribution and uses Unification File System.
+
+It's handy that you can boot with SLAX and debug a corrupt Linux system not
+just play around it. SLAX also has the option to install it into H.D.D if you
+like it eventually.
+
+0fOther options for booting SLAX07
+
+0fmemtest07
+  Do a memory test on the system
+
+
+
+
+
+
+
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F1control and F then 1 for the help index, or ENTER to 

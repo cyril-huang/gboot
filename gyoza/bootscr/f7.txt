@@ -1,0 +1,24 @@
+0fCentOS - the Redhat Enterprised based opensource OS07    09F707
+
+CentOS is an Enterprise-class Linux Distribution derived from sources freely 
+provided to the public by a prominent North American Enterprise Linux vendor.
+You can use rpm on this system and develope software based on Redhat's
+infrasture.
+
+0fOptions for CPU architecture07
+
+0fcentos07
+  The i386 CPU architecture version
+
+0fcentos_amd6407
+  The 64bits CPU architecture version
+
+0fSpecial options for booting CentOS07
+
+0ftext07     using text mode.
+0fks07       using ks mode.
+0flowres07   using low resolution vga mode.
+
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F1control and F then 1 for the help index, or ENTER to 

@@ -1,0 +1,2 @@
+vmware modify the mboot.c32 to boot esxi
+copy the mboot.c32 inside vmware iso to esxi.c32

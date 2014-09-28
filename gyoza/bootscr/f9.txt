@@ -1,0 +1,25 @@
+0fThe Linux booting parameters07                           09F907
+
+Linux boot the kernel and pass the parameters to it so the boot loader as
+grub, syslinux, lilo or pxelinux should have the ability to handle the Linux
+kernel parameters passing. There are some parameters which is defined by
+kernel can be passed usually with variable=value pair. If the variable is not
+defined by kernel, it will be a environment variable in the user space for
+all process.
+
+pass kernel module parameters to kernel with module
+
+For Example:
+
+  boot: debian aic7xxx.aic7xxx=no_probe
+  boot: debian rescue/enable=true
+  boot: i586
+
+
+
+
+
+
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F1control and F then 1 for the help index, or ENTER to 

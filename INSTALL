@@ -1,0 +1,49 @@
+Gyoza multiboot
+run script
+	./igboot /dev/sdx
+manual install
+	fdisk /dev/sdx
+		n, p1: vfat (c)
+		n, p2: hfsplus (af) 6G
+		a, boot: p1
+
+	mkfs.vfat /dev/sdx1
+	mkfs.hfsplus /dev/sdx2
+
+	dd if=gyoza/images/osx/boot1h of=/dev/sdx2 count=1 bs=512
+
+	grub.bs
+	dd if=syslinux/mbr.bin of=/dev/sdx count=1 bs=446
+	mount /dev/sdx1 /mnt
+	gyoza/grub/bin/grub-install --directory gyoza/grub/lib/grub/i386-pc  --root-directory /mnt /dev/sdx
+	dd if=/dev/sdx of=gyoza/mbr/grub.bs count=1 bs=512
+
+	syslinux.bs
+	dd if=syslinux/mbr.bin of=/dev/sdx count=1 bs=446
+	syslinux/syslinux64 -i /dev/sdx1
+	dd if=/dev/sdx1 of=gyoza/mbr/syslinux.bs count=1 bs=512
+
+	mount /dev/sdx1 /mnt/os
+	mount /dev/sdx2 /mnt/osx
+
+	android:
+		download android x86 and copy to /mnt/os
+	bsd:
+		download netboot image according to gyoza/images/bsd/version
+	osx:
+		cp all files to /mnt/osx
+	win7:
+		cp all files under sources to /mnt/os/srcxxxx
+		modify the /mnt/os/srcxxxx/boot.wim with wimlib
+	winxp:
+		cp all files to /mnt/os/winsrc/winxp
+		cp 32 bit boot.wim from vista WAIK iso.
+		modify the /mnt/os/srcxpen/boot.wim with wimlib
+	lnx:
+		put all kernel and initrd in /mnt/os/gyoza/images/linux
+	esxi:
+		cp all files to /esxi according to the syslinux/cfg/esxi.cfg
+		cp mboot.c32 => syslinux/modules/esxi.c32
+		modify boot.cfg => prefix=/esxi/5.5/, remove all leading /
+	solaris:
+		cp all files to /mnt/os

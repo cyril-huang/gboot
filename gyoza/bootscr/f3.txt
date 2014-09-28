@@ -1,0 +1,24 @@
+0fMicrosoft Windows XP Service Pack 207                    09F307
+
+The Microsoft Windows XP service pack 2 installation.
+
+0fAvailable MS Windows XP:07
+
+0fxpen07
+  The English Microsoft Windows XP SP2
+
+0fxptw07
+  The traditional Chinese Microsoft Windows XP SP2.
+
+
+
+
+
+
+
+
+
+
+
+boot options : msdos|freedos|debian|ubuntu|fedora|centos|slax|xptw|xpen
+Press F1control and F then 1 for the help index, or ENTER to 
