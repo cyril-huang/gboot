@@ -1,0 +1,458 @@
+#!/bin/bash
+pgr=`basename $0`
+version=0.0.1
+unalias -a
+
+usage () {
+            cat <<HERE
+$pgr $version Copyright (c) 2014 Gyoza Systems, Inc.
+
+$pgr [options] [kernel_version]
+
+options:
+  -b|--busybox : busybox tar file or busybox dir, gcc and make required. If
+                 tar file, will use default config, else will just try to
+                 install busybox from pre-compiled busybox directory which
+                 should have udhcpc stub.
+  -c|--clean   : cleanup the fakeroot, default is don't cleanup
+  -e|--extra   : extra binaries in the system want to be copied to ginitrd.
+                 with this fromat cmd1:cmd2:cmd3...
+  -f|--fakeroot: specify the fakeroot directory, default is /tmp/fakeroot-\$pid
+  -k|--kernel  : specify a kernel file to be used
+  -i|--initrd  : specify an initrd file to be used
+  -p|--package : the binaries in the package to be copies to ginitrd.
+                 with this format pkg1:pkg2:pkg3...
+  -h|--help
+
+kernel_version:
+  if no -k and -i specified, there should be a kernel and initrd in the /boot
+  with the default name scheme of distros
+
+  Debian series:
+    vmlinuz-\$kernel_version-\$arch
+    initrd.img-\$kernel_version-\$arch
+  Fedora/centos series:
+    vmlinuz-\$kernel_version.\$arch
+    initramfs-\$kernel_version.\$arch.img
+
+Example:
+  $pgr 3.16.1
+  $pgr --busybox busybox-1.22.1.tar.bz2 3.10.0-123.el7
+  $pgr -b busybox-1.22.1.tar.bz2 -k myvmlinuz -i myinitrd
+HERE
+}
+
+opts=`getopt -a -u -o cb:f:k:i:p:h -l busybox:,clean,extra:,fakeroot:,kernel:,initrd:,package:,help -- $@`
+[ $? -eq 0 ] || exit
+set -- $opts
+
+while true; do
+    case $1 in
+        -b|--busybox)
+            busybox=$2
+            shift 2
+            ;;
+        -c|--clean)
+            clean=1
+            shift
+            ;;
+        -e|--extra)
+            extra=$2
+            shift 2
+            ;;
+        -f|--fakeroot)
+            fakeroot=$2
+            shift 2
+            ;;
+        -i|--initrd)
+            initrd=$2
+            shift 2
+            ;;
+        -k|--kernel)
+            kernel=$2
+            shift 2
+            ;;
+        -p|--package)
+            package=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break;
+            ;;
+        ?|-h|--help)
+            usage
+            exit 1
+            ;;
+    esac
+done
+
+if [ "$kernel" -a "$initrd" ]; then
+    use_self_img=1
+else
+    version=$*
+fi
+
+if [ ! "$version" -a "$use_self_img" != "1" ]; then
+    echo "no version assigned or no kernel/initrd assigned"
+    usage
+    exit 1
+fi
+
+if [ ! "$fakeroot" ]; then
+    fakeroot=/tmp/fakeroot-$$
+    mkdir -p $fakeroot
+else
+    leading=`echo $fakeroot | cut -c 1`
+    if [ ! $leading = "/" ]; then
+        fakeroot=`pwd`/$fakeroot
+    fi
+    mkdir -p $fakeroot
+    if [ ! -w $fakeroot ]; then
+        echo "can not write to $fakeroot"
+        exit 1
+    fi
+fi
+
+arch=`uname -m`
+if [ "`command -v dpkg`" ]; then
+    [ "$arch" = "x86_64" ] && arch=amd64
+    kernel=${kernel:-/boot/vmlinuz-$version-$arch}
+    initrd=${initrd:-/boot/initrd.img-$version-$arch}
+    pkgcmd="dpkg --listfiles"
+elif [ "`command -v rpm`" ]; then
+    kernel=${kernel:-/boot/vmlinuz-$version.$arch}
+    initrd=${initrd:-/boot/initramfs-$version.$arch.img}
+    pkgcmd="rpm -ql"
+else
+    echo "no support pkg command"
+    exit 1
+fi
+
+if [ ! -f $kernel -o ! -f $initrd ]; then
+    echo "no $kernel or $initrd found"
+    exit 1;
+fi
+
+cp_libs () {
+    file=$1
+    libs=`ldd $file | sed -e '/ld-linux-x86-64.so/d' -n -e '/lib/p' | awk '{print $3}'`
+    for lib in $libs; do
+        mkdir -p $fakeroot/`dirname $lib`
+        cp -f $lib ${fakeroot}$lib
+    done
+}
+
+# extracting the initrd
+tmpinitrd=/tmp/initrd-$$
+mkdir $tmpinitrd
+(
+cd $tmpinitrd
+gzip -dc $initrd | cpio -id --no-absolute-filenames
+)
+
+# busybox
+if [ "$busybox" ]; then
+    if [ "`command -v gcc`" -a "`command -v make`" ]; then
+        echo "good for compiling busybox"
+    else
+        echo "No make and gcc installed for busybox compilation"
+        exit 1
+    fi
+
+    if [ -d $busybox ]; then
+        echo "entering $busybox ..."
+        make -C $busybox CONFIG_PREFIX=$fakeroot install
+        if [ $? -ne 0 ]; then
+            echo "busybox is not config yet or it's not busybox directory"
+            exit 1
+        fi
+    else
+        ftype=`file $busybox`
+	echo "ftype $ftype"
+        tmpbb=/tmp/busybox-$$
+        mkdir -p $tmpbb
+        case $ftype in
+            *XZ*)
+                tar Jxvf $busybox -C $tmpbb
+                ;;
+            *gzip*)
+                tar zxvf $busybox -C $tmpbb
+                ;;
+            *bzip2*)
+                tar jxvf $busybox -C $tmpbb
+                ;;
+            *)
+                echo "$busybox : no such compress format supported"
+                exit 1
+                ;;
+        esac
+        busybox=`ls $tmpbb/`
+        make -C $tmpbb/$busybox defconfig
+        make -C $tmpbb/$busybox CONFIG_PREFIX=$fakeroot install
+        rm -f $fakeroot/linuxrc
+        rm -rf $tmpbb
+    fi
+else
+    if [ "`$tmpinitrd/bin/busybox | grep udhcpc`" ]; then
+        busybox=$tmpinitrd/bin/busybox
+    elif [ "`/bin/busybox | grep udhcpc`" ]; then
+        busybox=/bin/busybox
+    else
+        echo "can not find busybox with udhcpc, please download and specify one"
+        exit 1
+    fi
+    mkdir $fakeroot/bin
+    $busybox --install -s $fakeroot/bin
+    for file in $fakeroot/bin/*; do
+        ln -sf /bin/busybox $file
+    done
+    cp -f $busybox $fakeroot/bin
+fi
+cp_libs $fakeroot/bin/busybox
+
+initscript='#!/bin/sh
+echo "Loading Gyoza..."
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
+
+# device and pseudo filesystem dir
+[ -d /dev ]     || mkdir -m 0755 /dev
+[ -d /sys ]     || mkdir /sys
+[ -d /proc ]    || mkdir /proc
+[ -d /tmp ]     || mkdir /tmp
+[ -d /run/udev ] || mkdir -p /run/udev
+mkdir -p /var/lock
+
+# sysfs need by udev
+mount -nt sysfs none /sys
+mount -nt proc none /proc
+mount -nt tmpfs tmpfs /tmp
+mount -nt tmpfs tmpfs /run
+
+# udev for 2.6 kernel, no shm and pts any more.
+tmpfs_size=10m
+mount -nt tmpfs -o size=$tmpfs_size,mode=0755 udev /dev
+
+# necessary dvices files in kernel for booting
+[ -e /dev/console ]     || mknod /dev/console c 5 1
+[ -e /dev/null ]        || mknod /dev/null c 1 3
+[ -e /dev/tty ]         || mknod /dev/tty c 5 0
+[ -e /dev/tty0 ]        || mknod /dev/tty0 c 4 0
+[ -e /dev/tty1 ]        || mknod /dev/tty1 c 4 1
+[ -e /dev/tty2 ]        || mknod /dev/tty2 c 4 2
+[ -e /dev/tty3 ]        || mknod /dev/tty3 c 4 3
+[ -e /dev/random ]      || mknod -m 644 /dev/random c 1 8
+[ -e /dev/urandom ]     || mknod -m 644 /dev/urandom c 1 9
+
+# necessary devices for rescue the system
+[ -e /dev/sda ] || mknod /dev/sda b 8 0
+[ -e /dev/sdb ] || mknod /dev/sdb b 8 16
+[ -e /dev/sg0 ] || mknod /dev/sg0 c 21 0
+[ -e /dev/hda ] || mknod /dev/hda b 3 0
+[ -e /dev/hdb ] || mknod /dev/hdb b 3 64
+[ -e /dev/hdc ] || mknod /dev/hdc b 22 0
+[ -e /dev/sda1 ] || mknod /dev/sda1 b 8 1
+[ -e /dev/sda2 ] || mknod /dev/sda2 b 8 2
+[ -e /dev/sda3 ] || mknod /dev/sda3 b 8 3
+[ -e /dev/sda4 ] || mknod /dev/sda4 b 8 4
+[ -e /dev/sda5 ] || mknod /dev/sda5 b 8 5
+[ -e /dev/sda6 ] || mknod /dev/sda6 b 8 6
+
+# root
+[ -d /root ] || mkdir --m 0700 /root
+
+# var
+[ -d /var ] || mkdir --m 0755 /var
+
+# parse command line for gyoza distro
+# env passed by bootloader in /proc/cmdline
+for cmd in $(cat /proc/cmdline); do
+        case $cmd in
+                *)
+                echo "cmdline $cmd";
+                ;;
+        esac
+done
+# all default variables will not be env in 2.6
+# default variables from __setup() in the kernel code, so be careful
+echo "initrd $initrd"
+
+# load drivers necessary for booting to find the root device
+echo "loading... $driver"
+depmod -a
+udevd --daemon 2>/dev/null
+udevadm trigger 2>/dev/null
+udevadm settle true
+
+# root=/dev/nfs and root=/dev/ram0 will be handled by kernel prepare_namespace()
+#
+# change to real root
+modprobe ext3
+modprobe iso9660
+chmod 755 /etc/udhcpc.script
+eth0=`ip link show eth0"`
+if [ -z "$eth0" ]; then
+	if [ "`lspci | grep 8139`" ]; then
+		modprobe 8139cp
+	fi
+fi
+udhcpc -i eth0 -s /etc/udhcpc.script
+export PS1="{gyoza}\w > "
+exec setsid cttyhack /bin/ash
+'
+
+udhcpc_script='#!/bin/sh
+
+ip link set lo up
+ip link set $interface up
+[ "$broadcast" ] && broadcast="broadcast $broadcast"
+[ "$subnet" ] && ip="$ip/$subnet"
+
+case "$1" in
+    deconfig)
+        ip addr del $ip $interface
+        ;;
+    renew|bound)
+        ip addr add $ip $broadcast dev $interface
+
+        if [ -n "$router" ] ; then
+            defaultgw=`ip route | grep default | awk '"'{print \$3}'"'`
+            if [ -n "$defaultgw" ]; then
+                ip route del default via $router
+            fi
+
+            ip route add default via $router dev $interface
+        fi
+
+        [ -n "$domain" ] && echo search $domain > /etc/resolv.conf
+        for entry in $dns ; do
+            echo nameserver $entry >> /etc/resolv.conf
+        done
+        ;;
+esac
+
+exit 0
+'
+
+get_essential_lib () {
+    _lib=$1
+    libfile=`find -L /lib -name $_lib`
+    [ "$libfile" ] || libfile=`find -L /lib64 -name $_lib`
+    if [ "$libfile" ]; then
+        mkdir -p $fakeroot/`dirname $libfile`
+        cp $libfile $fakeroot/$libfile
+    else
+        echo "no $_lib found"
+    fi
+}
+
+# directories
+for dir in bin sbin dev etc lib lib64 root sys proc var run tmp; do
+    mkdir -p $fakeroot/$dir
+done
+mkdir -p $fakeroot/usr/local/bin
+mkdir -p $fakeroot/usr/local/sbin
+mkdir -p $fakeroot/var/run
+
+echo "$initscript" > $fakeroot/init
+echo "$udhcpc_script" > $fakeroot/etc/udhcpc.script
+chmod 755 $fakeroot/init
+echo "root:x:0:0:root:/root:/bin/sh" > $fakeroot/etc/passwd
+echo "root:x:0:" > $fakeroot/etc/group
+
+# linker, nsl/nss, terminfo, modules, firmware
+cp /lib64/ld-linux-x86-64.so.* $fakeroot/lib64
+get_essential_lib 'libnsl.so.*'
+get_essential_lib 'libnss_compat.so.*'
+get_essential_lib 'libnss_files.so.*'
+
+# terminfo location may be in /lib/terminfo, /usr/share/terminfo
+for terminfo in /lib/terminfo /usr/share/terminfo; do
+    lnxterm=`find -L $terminfo -name linux 2>/dev/null`
+    if [ "$lnxterm" ]; then
+        mkdir -p $fakeroot/`dirname $lnxterm`
+        cp $lnxterm $fakeroot/$lnxterm
+    fi
+done
+
+for dir in modules firmware; do
+    if [ -d $tmpinitrd/lib/$dir ]; then
+        cp -rf $tmpinitrd/lib/$dir $fakeroot/lib
+    fi
+done
+
+# udev
+cp -rf /lib/udev/ $fakeroot/lib/
+cp -rf /etc/udev $fakeroot/etc/
+for file in udevadm udevd; do
+    for dir in bin sbin; do
+        if [ -f /$dir/$file ]; then
+            cp /$dir/$file $fakeroot/$dir/$file
+            cp_libs /$dir/$file
+            copied=1
+        fi
+    done
+    if [ "$copied" != "1" -a $file = udevd ]; then
+        for systemdir in /lib/systemd /usr/lib/systemd; do
+            if [ -f $systemdir/systemd-udevd ]; then
+                cp /$systemdir/systemd-udevd $fakeroot/sbin/udevd
+                cp_libs /$systemdir/systemd-udevd
+                copied=1
+            fi
+        done
+    fi
+    if [ "$copied" != "1" ]; then
+        echo "no $file found"
+        exit 1
+    fi
+    copied=0
+done
+
+package=`echo $package | sed -e 's/:/ /g'
+extra=`echo $extra | sed -e 's/:/ /g'
+pkgs="lvm2 $package"
+bins="dmidecode tcpdump ssh scp smartctl hdparam cu screen dmsetup $extra"
+
+for bin in $bins; do
+    binfile=`command -v $bin`
+    if [ "$binfile" ]; then
+        cp $binfile $fakeroot/$binfile
+        cp_libs $binfile
+    else
+        for dir in /sbin /usr/sbin; do
+            if [ -f "$dir/$bin" ]; then
+                cp_libs $dir/$bin
+                cp_bin=1
+            fi
+        done
+        if [ "$cp_bin" != 1 ]; then
+            echo "no $bin binary installed in system"
+        fi
+        cp_bin=0
+    fi
+done
+
+for pkg in $pkgs; do
+    bins=`$pkgcmd $pkg 2>/dev/null| grep bin/`
+    [ $? -eq 0 ] || echo "no pkg $pkg installed in system"
+    for bin in $bins; do
+        cp -av $bin $fakeroot/$bin
+    done
+done
+
+target=$HOME/ginitrd
+mkdir -p $target
+cp -f $kernel $target/linux
+cd $fakeroot
+find . | cpio -o -H newc | gzip -9 > $target/initrd.img
+
+echo "kernel linux and initrd.img created in $target"
+rm -rf $tmpinitrd
+if [ "$clean" = "1" ]; then
+    rm -rf $fakeroot
+else
+    echo "fakeroot left in $fakeroot"
+fi
+
+#vim:sw=4:sts=4:expandtab
