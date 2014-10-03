@@ -351,8 +351,8 @@ get_essential_lib () {
 for dir in bin sbin dev etc lib lib64 root sys proc var run tmp; do
     mkdir -p $fakeroot/$dir
 done
-mkdir -p $fakeroot/usr/local/bin
-mkdir -p $fakeroot/usr/local/sbin
+mkdir -p $fakeroot/usr/bin
+mkdir -p $fakeroot/usr/sbin
 mkdir -p $fakeroot/var/run
 
 echo "$initscript" > $fakeroot/init
@@ -409,8 +409,8 @@ for file in udevadm udevd; do
     copied=0
 done
 
-package=`echo $package | sed -e 's/:/ /g'
-extra=`echo $extra | sed -e 's/:/ /g'
+package=`echo $package | sed -e 's/:/ /g'`
+extra=`echo $extra | sed -e 's/:/ /g'`
 pkgs="lvm2 $package"
 bins="dmidecode tcpdump ssh scp smartctl hdparam cu screen dmsetup $extra"
 
@@ -422,6 +422,7 @@ for bin in $bins; do
     else
         for dir in /sbin /usr/sbin; do
             if [ -f "$dir/$bin" ]; then
+                cp $dir/$bin $fakeroot/$dir/$bin
                 cp_libs $dir/$bin
                 cp_bin=1
             fi
@@ -441,11 +442,13 @@ for pkg in $pkgs; do
     done
 done
 
-target=$HOME/ginitrd
+target=$HOME/$pgr
 mkdir -p $target
 cp -f $kernel $target/linux
+(
 cd $fakeroot
 find . | cpio -o -H newc | gzip -9 > $target/initrd.img
+)
 
 echo "kernel linux and initrd.img created in $target"
 rm -rf $tmpinitrd
