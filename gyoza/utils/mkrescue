@@ -297,7 +297,7 @@ if [ -z "$eth0" ]; then
 		modprobe 8139cp
 	fi
 fi
-udhcpc -i eth0 -s /etc/udhcpc.script
+udhcpc -i eth0 -n -t 3 -s /etc/udhcpc.script
 export PS1="{gyoza}\w > "
 exec setsid cttyhack /bin/ash
 '
@@ -412,7 +412,7 @@ done
 package=`echo $package | sed -e 's/:/ /g'`
 extra=`echo $extra | sed -e 's/:/ /g'`
 pkgs="lvm2 $package"
-bins="dmidecode tcpdump ssh scp smartctl hdparam cu screen dmsetup $extra"
+bins="dmidecode tcpdump ssh scp smartctl cu screen dmsetup $extra"
 
 for bin in $bins; do
     binfile=`command -v $bin`
@@ -439,6 +439,7 @@ for pkg in $pkgs; do
     [ $? -eq 0 ] || echo "no pkg $pkg installed in system"
     for bin in $bins; do
         cp -av $bin $fakeroot/$bin
+        cp_libs $bin
     done
 done
 
